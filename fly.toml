@@ -1,6 +1,9 @@
 app = "simobi-mqtt-bridge"
 primary_region = "sin"
 
+[build]
+  dockerfile = "Dockerfile"
+
 [env]
   BUGGY_ID = "2"
   DEFAULT_ACCURACY = "10"
