@@ -17,9 +17,7 @@ function readRequiredEnv(name) {
 
 const missingEnv = REQUIRED_ENV.filter((name) => !process.env[name]);
 if (missingEnv.length > 0) {
-  console.error(
-    `Bridge cannot start. Missing env vars: ${missingEnv.join(", ")}`,
-  );
+  console.error(`Bridge cannot start. Missing env vars: ${missingEnv.join(", ")}`);
   console.error("Set them in Railway Variables, then redeploy the service.");
   process.exit(1);
 }
@@ -114,10 +112,7 @@ client.on("message", async (topic, message) => {
     console.log("Received MQTT GPS payload:", { topic, data });
 
     if (typeof data.lat !== "number" || typeof data.lng !== "number") {
-      console.warn(
-        "Skipping payload because lat/lng is missing or not a number:",
-        data,
-      );
+      console.warn("Skipping payload because lat/lng is missing or not a number:", data);
       return;
     }
 
@@ -126,12 +121,10 @@ client.on("message", async (topic, message) => {
       lat: data.lat,
       lng: data.lng,
       speedKmh: typeof data.speed === "number" ? data.speed : 0,
-      accuracy:
-        typeof data.accuracy === "number" ? data.accuracy : DEFAULT_ACCURACY,
+      accuracy: typeof data.accuracy === "number" ? data.accuracy : DEFAULT_ACCURACY,
       heading: typeof data.heading === "number" ? data.heading : undefined,
       altitude: typeof data.altitude === "number" ? data.altitude : undefined,
-      batteryLevel:
-        typeof data.batteryLevel === "number" ? data.batteryLevel : undefined,
+      batteryLevel: typeof data.batteryLevel === "number" ? data.batteryLevel : undefined,
       forceResync: data.forceResync === true,
     };
 
@@ -182,3 +175,22 @@ client.on("error", (err) => {
   status.lastError = err.message;
   console.error("MQTT error:", err);
 });
+
+function shutdown(signal) {
+  console.log(`Received ${signal}, closing MQTT bridge...`);
+
+  client.end(false, () => {
+    healthServer.close(() => {
+      console.log("MQTT bridge stopped.");
+      process.exit(0);
+    });
+  });
+
+  setTimeout(() => {
+    console.warn("Forced shutdown after timeout.");
+    process.exit(0);
+  }, 5000).unref();
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

@@ -6,6 +6,39 @@ Worker kecil untuk meneruskan data GPS dari MQTT broker ke endpoint SIMOBI:
 ESP32 -> HiveMQ MQTT -> mqtt-bridge-service -> /api/gps-beacon
 ```
 
+## Deploy Ke Fly.io
+
+Service ini adalah MQTT worker yang juga membuka health endpoint HTTP untuk Fly:
+
+```text
+GET /health
+```
+
+Konfigurasi Fly ada di `fly.toml` dan sengaja memakai:
+
+```text
+auto_stop_machines = false
+min_machines_running = 1
+```
+
+Ini penting karena MQTT bridge harus selalu hidup. Jika auto-stop aktif, Fly bisa menghentikan Machine saat tidak ada traffic HTTP walaupun koneksi MQTT masih dibutuhkan.
+
+Set secrets di Fly:
+
+```bash
+fly secrets set MQTT_SERVER="mqtts://db7ded41366b4e9e863e255883a077fd.s1.eu.hivemq.cloud:8883"
+fly secrets set MQTT_USER="ESP32GPSBV1"
+fly secrets set MQTT_PASS="..."
+fly secrets set API_URL="https://undip-bus-tracking.vercel.app/api/gps-beacon"
+```
+
+Deploy:
+
+```bash
+cd mqtt-bridge-service
+fly deploy
+```
+
 ## Deploy Ke Railway
 
 1. Buat service baru di Railway dari repo ini.
