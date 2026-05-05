@@ -13,5 +13,8 @@
   "dependencies": {
     "dotenv": "^16.6.1",
     "mqtt": "^5.15.1"
+  },
+  "devDependencies": {
+    "@flydotio/dockerfile": "^0.7.10"
   }
 }
