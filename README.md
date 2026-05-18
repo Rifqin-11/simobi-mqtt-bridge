@@ -30,6 +30,7 @@ fly secrets set MQTT_SERVER="mqtts://db7ded41366b4e9e863e255883a077fd.s1.eu.hive
 fly secrets set MQTT_USER="ESP32GPSBV1"
 fly secrets set MQTT_PASS="..."
 fly secrets set API_URL="https://undip-bus-tracking.vercel.app/api/gps-beacon"
+fly secrets set BUGGY_INGEST_TOKEN="your-secret-token"
 ```
 
 Deploy:
@@ -63,6 +64,7 @@ MQTT_USER=your-mqtt-username
 MQTT_PASS=your-mqtt-password
 MQTT_TOPIC=bus/gps/data
 API_URL=https://your-simobi-web-production.up.railway.app/api/gps-beacon
+BUGGY_INGEST_TOKEN=your-secret-token
 BUGGY_ID=2
 DEFAULT_ACCURACY=10
 ```
@@ -102,5 +104,6 @@ MQTT_USER="..." \
 MQTT_PASS="..." \
 MQTT_TOPIC="bus/gps/data" \
 API_URL="http://localhost:3000/api/gps-beacon" \
+BUGGY_INGEST_TOKEN="your-secret-token" \
 npm start
 ```

@@ -3,7 +3,7 @@ require("dotenv").config();
 const http = require("http");
 const mqtt = require("mqtt");
 
-const REQUIRED_ENV = ["MQTT_SERVER", "MQTT_USER", "MQTT_PASS", "API_URL"];
+const REQUIRED_ENV = ["MQTT_SERVER", "MQTT_USER", "MQTT_PASS", "API_URL", "BUGGY_INGEST_TOKEN"];
 
 function readRequiredEnv(name) {
   const value = process.env[name];
@@ -27,6 +27,7 @@ const MQTT_USER = readRequiredEnv("MQTT_USER");
 const MQTT_PASS = readRequiredEnv("MQTT_PASS");
 const TOPIC = process.env.MQTT_TOPIC || "bus/gps/data";
 const API_URL = readRequiredEnv("API_URL");
+const BUGGY_INGEST_TOKEN = readRequiredEnv("BUGGY_INGEST_TOKEN");
 const BUGGY_ID = Number(process.env.BUGGY_ID || 2);
 const DEFAULT_ACCURACY = Number(process.env.DEFAULT_ACCURACY || 10);
 const PORT = Number(process.env.PORT || 8080);
@@ -130,7 +131,10 @@ client.on("message", async (topic, message) => {
 
     const res = await fetch(API_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${BUGGY_INGEST_TOKEN}`,
+      },
       body: JSON.stringify(payload),
     });
 
