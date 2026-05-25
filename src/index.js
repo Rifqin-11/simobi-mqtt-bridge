@@ -28,7 +28,6 @@ const MQTT_PASS = readRequiredEnv("MQTT_PASS");
 const TOPIC = process.env.MQTT_TOPIC || "bus/gps/data";
 const API_URL = readRequiredEnv("API_URL");
 const BUGGY_INGEST_TOKEN = readRequiredEnv("BUGGY_INGEST_TOKEN");
-const BUGGY_ID = Number(process.env.BUGGY_ID || 2);
 const DEFAULT_ACCURACY = Number(process.env.DEFAULT_ACCURACY || 10);
 const PORT = Number(process.env.PORT || 8080);
 const HOST = "0.0.0.0";
@@ -42,14 +41,22 @@ const status = {
   lastError: null,
 };
 
-if (!Number.isFinite(BUGGY_ID)) {
-  console.error("BUGGY_ID must be a number.");
-  process.exit(1);
-}
-
 if (!Number.isFinite(PORT)) {
   console.error("PORT must be a number.");
   process.exit(1);
+}
+
+function inferBuggyIdFromTopic(topic) {
+  const match = topic.match(/^buggy\/([^/]+)\/data$/);
+  if (!match) return null;
+
+  const buggyId = Number(match[1]);
+  return Number.isFinite(buggyId) ? buggyId : null;
+}
+
+function readBuggyId(topic, data) {
+  const buggyId = Number(data.buggyId ?? inferBuggyIdFromTopic(topic) ?? process.env.BUGGY_ID ?? 2);
+  return Number.isFinite(buggyId) ? buggyId : null;
 }
 
 const healthServer = http.createServer((req, res) => {
@@ -58,7 +65,6 @@ const healthServer = http.createServer((req, res) => {
     service: "simobi-mqtt-bridge",
     topic: TOPIC,
     apiUrl: API_URL,
-    buggyId: BUGGY_ID,
     ...status,
   });
 
@@ -117,15 +123,24 @@ client.on("message", async (topic, message) => {
       return;
     }
 
+    const buggyId = readBuggyId(topic, data);
+    if (buggyId === null) {
+      console.warn("Skipping payload because buggyId is missing or invalid:", { topic, data });
+      return;
+    }
+
     const payload = {
-      buggyId: BUGGY_ID,
+      buggyId,
       lat: data.lat,
       lng: data.lng,
       speedKmh: typeof data.speed === "number" ? data.speed : 0,
-      accuracy: typeof data.accuracy === "number" ? data.accuracy : DEFAULT_ACCURACY,
+      accuracy:
+        typeof data.accuracy === "number" ? data.accuracy : DEFAULT_ACCURACY,
       heading: typeof data.heading === "number" ? data.heading : undefined,
       altitude: typeof data.altitude === "number" ? data.altitude : undefined,
-      batteryLevel: typeof data.batteryLevel === "number" ? data.batteryLevel : undefined,
+      batteryLevel:
+        typeof data.batteryLevel === "number" ? data.batteryLevel : undefined,
+      passengers: typeof data.passengers === "number" ? data.passengers : 0,
       forceResync: data.forceResync === true,
     };
 
