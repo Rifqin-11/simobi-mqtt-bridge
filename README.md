@@ -95,6 +95,32 @@ Field opsional yang juga akan diteruskan:
 }
 ```
 
+Payload juga mendukung data status GSM dari ESP32:
+
+```json
+{
+  "lat": -7.060384,
+  "lng": 110.436554,
+  "speed": 0.61,
+  "gsm": {
+    "apn": "internet",
+    "signalCsq": 28,
+    "signalDbm": -57,
+    "signalPercent": 90,
+    "simStatus": 1,
+    "simStatusText": "SIM_READY",
+    "networkConnected": true,
+    "gprsConnected": true,
+    "localIp": "10.16.103.147",
+    "networkType": "GSM_GPRS_2G",
+    "mqttState": 0,
+    "mqttStateText": "MQTT_CONNECTED"
+  }
+}
+```
+
+Bridge akan meneruskan objek `gsm` ke API hanya jika field-nya valid.
+
 ## Jalankan Lokal
 
 ```bash

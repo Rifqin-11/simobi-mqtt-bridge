@@ -59,6 +59,42 @@ function readBuggyId(topic, data) {
   return Number.isFinite(buggyId) ? buggyId : null;
 }
 
+function readOptionalString(value) {
+  return typeof value === "string" && value.trim() !== "" ? value : undefined;
+}
+
+function readOptionalNumber(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readOptionalBoolean(value) {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function readGsmTelemetry(data) {
+  if (!data.gsm || typeof data.gsm !== "object" || Array.isArray(data.gsm)) {
+    return undefined;
+  }
+
+  const gsm = {
+    apn: readOptionalString(data.gsm.apn),
+    signalCsq: readOptionalNumber(data.gsm.signalCsq),
+    signalDbm: readOptionalNumber(data.gsm.signalDbm),
+    signalPercent: readOptionalNumber(data.gsm.signalPercent),
+    simStatus: readOptionalNumber(data.gsm.simStatus),
+    simStatusText: readOptionalString(data.gsm.simStatusText),
+    networkConnected: readOptionalBoolean(data.gsm.networkConnected),
+    gprsConnected: readOptionalBoolean(data.gsm.gprsConnected),
+    localIp: readOptionalString(data.gsm.localIp),
+    networkType: readOptionalString(data.gsm.networkType),
+    mqttState: readOptionalNumber(data.gsm.mqttState),
+    mqttStateText: readOptionalString(data.gsm.mqttStateText),
+  };
+
+  const entries = Object.entries(gsm).filter(([, value]) => value !== undefined);
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
 const healthServer = http.createServer((req, res) => {
   const body = JSON.stringify({
     ok: true,
@@ -142,6 +178,7 @@ client.on("message", async (topic, message) => {
         typeof data.batteryLevel === "number" ? data.batteryLevel : undefined,
       passengers: typeof data.passengers === "number" ? data.passengers : 0,
       forceResync: data.forceResync === true,
+      gsm: readGsmTelemetry(data),
     };
 
     const res = await fetch(API_URL, {
