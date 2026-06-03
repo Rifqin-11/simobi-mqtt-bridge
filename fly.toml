@@ -6,7 +6,7 @@ primary_region = "sin"
 
 [env]
   DEFAULT_ACCURACY = "10"
-  MQTT_TOPIC = "simobi/data"
+  MQTT_TOPIC = "buggy/+/data"
   PORT = "8080"
 
 [http_service]

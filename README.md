@@ -62,7 +62,7 @@ npm start
 MQTT_SERVER=mqtts://your-hivemq-host:8883
 MQTT_USER=your-mqtt-username
 MQTT_PASS=your-mqtt-password
-MQTT_TOPIC=simobi/data
+MQTT_TOPIC=buggy/+/data
 API_URL=https://your-simobi-web-production.up.railway.app/api/gps-beacon
 BUGGY_INGEST_TOKEN=your-secret-token
 DEVICES_ID=ESP-DEFAULT
@@ -73,7 +73,7 @@ DEFAULT_ACCURACY=10
 
 ## Payload MQTT
 
-ESP32 publish JSON ke `MQTT_TOPIC`:
+ESP32 publish JSON ke topic `buggy/<devicesId>/data`, misalnya `buggy/ESP-1234ABCD/data`:
 
 ```json
 {
@@ -94,7 +94,7 @@ Bridge menerima field ID berikut:
 devicesId -> deviceId -> buggyId -> DEVICES_ID -> DEVICE_ID -> BUGGY_ID
 ```
 
-Payload yang diteruskan ke API memakai field `devicesId`. Ini menjaga ESP baru yang mengirim `deviceId` tetap kompatibel dengan API baru yang memakai `devicesId`.
+Payload yang diteruskan ke API memakai field `devicesId`. Jika ID tidak ada di payload, bridge bisa mengambil ID dari topic `buggy/<devicesId>/data`.
 
 Field opsional yang juga akan diteruskan:
 
@@ -141,7 +141,7 @@ cd mqtt-bridge-service
 MQTT_SERVER="mqtts://..." \
 MQTT_USER="..." \
 MQTT_PASS="..." \
-MQTT_TOPIC="simobi/data" \
+MQTT_TOPIC="buggy/+/data" \
 API_URL="http://localhost:3000/api/gps-beacon" \
 BUGGY_INGEST_TOKEN="your-secret-token" \
 npm start

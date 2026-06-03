@@ -25,7 +25,7 @@ if (missingEnv.length > 0) {
 const MQTT_SERVER = readRequiredEnv("MQTT_SERVER");
 const MQTT_USER = readRequiredEnv("MQTT_USER");
 const MQTT_PASS = readRequiredEnv("MQTT_PASS");
-const TOPIC = process.env.MQTT_TOPIC || "simobi/data";
+const TOPIC = process.env.MQTT_TOPIC || "buggy/+/data";
 const API_URL = readRequiredEnv("API_URL");
 const BUGGY_INGEST_TOKEN = readRequiredEnv("BUGGY_INGEST_TOKEN");
 const DEFAULT_ACCURACY = Number(process.env.DEFAULT_ACCURACY || 10);
