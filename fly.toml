@@ -5,9 +5,8 @@ primary_region = "sin"
   dockerfile = "Dockerfile"
 
 [env]
-  BUGGY_ID = "2"
   DEFAULT_ACCURACY = "10"
-  MQTT_TOPIC = "bus/gps/data"
+  MQTT_TOPIC = "simobi/data"
   PORT = "8080"
 
 [http_service]

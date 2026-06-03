@@ -3,7 +3,7 @@
 Worker kecil untuk meneruskan data GPS dari MQTT broker ke endpoint SIMOBI:
 
 ```text
-ESP32 -> HiveMQ MQTT -> mqtt-bridge-service -> /api/gps-beacon
+ESP32 -> MQTT Broker -> mqtt-bridge-service -> /api/gps-beacon
 ```
 
 ## Deploy Ke Fly.io
@@ -62,10 +62,10 @@ npm start
 MQTT_SERVER=mqtts://your-hivemq-host:8883
 MQTT_USER=your-mqtt-username
 MQTT_PASS=your-mqtt-password
-MQTT_TOPIC=bus/gps/data
+MQTT_TOPIC=simobi/data
 API_URL=https://your-simobi-web-production.up.railway.app/api/gps-beacon
 BUGGY_INGEST_TOKEN=your-secret-token
-BUGGY_ID=2
+DEVICES_ID=ESP-DEFAULT
 DEFAULT_ACCURACY=10
 ```
 
@@ -77,11 +77,24 @@ ESP32 publish JSON ke `MQTT_TOPIC`:
 
 ```json
 {
+  "deviceId": "ESP-1234ABCD",
   "lat": -7.060384,
   "lng": 110.436554,
-  "speed": 0.61
+  "speed": 0.61,
+  "sat": 8,
+  "accuracy": 1.2,
+  "passengers": 12,
+  "gpsValid": true
 }
 ```
+
+Bridge menerima field ID berikut:
+
+```text
+devicesId -> deviceId -> buggyId -> DEVICES_ID -> DEVICE_ID -> BUGGY_ID
+```
+
+Payload yang diteruskan ke API memakai field `devicesId`. Ini menjaga ESP baru yang mengirim `deviceId` tetap kompatibel dengan API baru yang memakai `devicesId`.
 
 Field opsional yang juga akan diteruskan:
 
@@ -128,7 +141,7 @@ cd mqtt-bridge-service
 MQTT_SERVER="mqtts://..." \
 MQTT_USER="..." \
 MQTT_PASS="..." \
-MQTT_TOPIC="bus/gps/data" \
+MQTT_TOPIC="simobi/data" \
 API_URL="http://localhost:3000/api/gps-beacon" \
 BUGGY_INGEST_TOKEN="your-secret-token" \
 npm start

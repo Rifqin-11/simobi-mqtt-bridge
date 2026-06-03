@@ -25,7 +25,7 @@ if (missingEnv.length > 0) {
 const MQTT_SERVER = readRequiredEnv("MQTT_SERVER");
 const MQTT_USER = readRequiredEnv("MQTT_USER");
 const MQTT_PASS = readRequiredEnv("MQTT_PASS");
-const TOPIC = process.env.MQTT_TOPIC || "bus/gps/data";
+const TOPIC = process.env.MQTT_TOPIC || "simobi/data";
 const API_URL = readRequiredEnv("API_URL");
 const BUGGY_INGEST_TOKEN = readRequiredEnv("BUGGY_INGEST_TOKEN");
 const DEFAULT_ACCURACY = Number(process.env.DEFAULT_ACCURACY || 10);
@@ -46,17 +46,33 @@ if (!Number.isFinite(PORT)) {
   process.exit(1);
 }
 
-function inferBuggyIdFromTopic(topic) {
-  const match = topic.match(/^buggy\/([^/]+)\/data$/);
+function inferDeviceIdFromTopic(topic) {
+  const match = topic.match(/^(?:buggy|device|devices)\/([^/]+)\/data$/);
   if (!match) return null;
 
-  const buggyId = Number(match[1]);
-  return Number.isFinite(buggyId) ? buggyId : null;
+  return match[1];
 }
 
-function readBuggyId(topic, data) {
-  const buggyId = Number(data.buggyId ?? inferBuggyIdFromTopic(topic) ?? process.env.BUGGY_ID ?? 2);
-  return Number.isFinite(buggyId) ? buggyId : null;
+function readDevicesId(topic, data) {
+  const rawDevicesId =
+    data.devicesId ??
+    data.deviceId ??
+    data.buggyId ??
+    inferDeviceIdFromTopic(topic) ??
+    process.env.DEVICES_ID ??
+    process.env.DEVICE_ID ??
+    process.env.BUGGY_ID ??
+    2;
+
+  if (typeof rawDevicesId === "number" && Number.isFinite(rawDevicesId)) {
+    return String(rawDevicesId);
+  }
+
+  if (typeof rawDevicesId === "string" && rawDevicesId.trim() !== "") {
+    return rawDevicesId.trim();
+  }
+
+  return null;
 }
 
 function readOptionalString(value) {
@@ -159,14 +175,14 @@ client.on("message", async (topic, message) => {
       return;
     }
 
-    const buggyId = readBuggyId(topic, data);
-    if (buggyId === null) {
-      console.warn("Skipping payload because buggyId is missing or invalid:", { topic, data });
+    const devicesId = readDevicesId(topic, data);
+    if (devicesId === null) {
+      console.warn("Skipping payload because devicesId/deviceId is missing or invalid:", { topic, data });
       return;
     }
 
     const payload = {
-      buggyId,
+      devicesId,
       lat: data.lat,
       lng: data.lng,
       speedKmh: typeof data.speed === "number" ? data.speed : 0,
