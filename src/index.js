@@ -26,11 +26,17 @@ const MQTT_SERVER = readRequiredEnv("MQTT_SERVER");
 const MQTT_USER = readRequiredEnv("MQTT_USER");
 const MQTT_PASS = readRequiredEnv("MQTT_PASS");
 const TOPIC = process.env.MQTT_TOPIC || "buggy/+/data";
+const TOPICS = resolveMqttTopics(TOPIC);
 const API_URL = readRequiredEnv("API_URL");
 const BUGGY_INGEST_TOKEN = readRequiredEnv("BUGGY_INGEST_TOKEN");
 const DEFAULT_ACCURACY = Number(process.env.DEFAULT_ACCURACY || 10);
+const FORWARD_MIN_INTERVAL_MS = Number(process.env.FORWARD_MIN_INTERVAL_MS || 5000);
+const FORWARD_DISTANCE_THRESHOLD_METERS = Number(
+  process.env.FORWARD_DISTANCE_THRESHOLD_METERS || 10,
+);
 const PORT = Number(process.env.PORT || 8080);
 const HOST = "0.0.0.0";
+const lastForwardByDevice = new Map();
 
 const status = {
   mqttConnected: false,
@@ -38,6 +44,8 @@ const status = {
   lastMessageAt: null,
   lastForwardAt: null,
   lastForwardStatus: null,
+  lastSkippedAt: null,
+  lastSkippedReason: null,
   lastError: null,
 };
 
@@ -46,11 +54,45 @@ if (!Number.isFinite(PORT)) {
   process.exit(1);
 }
 
+if (!Number.isFinite(FORWARD_MIN_INTERVAL_MS) || FORWARD_MIN_INTERVAL_MS < 0) {
+  console.error("FORWARD_MIN_INTERVAL_MS must be a non-negative number.");
+  process.exit(1);
+}
+
+if (
+  !Number.isFinite(FORWARD_DISTANCE_THRESHOLD_METERS) ||
+  FORWARD_DISTANCE_THRESHOLD_METERS < 0
+) {
+  console.error("FORWARD_DISTANCE_THRESHOLD_METERS must be a non-negative number.");
+  process.exit(1);
+}
+
+function resolveMqttTopics(value) {
+  const configuredTopics = value
+    .split(",")
+    .map((topic) => topic.trim())
+    .filter(Boolean);
+  const topics = configuredTopics.length > 0 ? configuredTopics : ["buggy/+/data"];
+
+  for (const topic of [...topics]) {
+    const statusTopic = topic.replace(/\/data$/, "/status");
+    if (statusTopic !== topic && !topics.includes(statusTopic)) {
+      topics.push(statusTopic);
+    }
+  }
+
+  return topics;
+}
+
 function inferDeviceIdFromTopic(topic) {
-  const match = topic.match(/^(?:buggy|device|devices)\/([^/]+)\/data$/);
+  const match = topic.match(/^(?:buggy|device|devices)\/([^/]+)\/(?:data|status)$/);
   if (!match) return null;
 
   return match[1];
+}
+
+function isStatusTopic(topic) {
+  return /^(?:buggy|device|devices)\/[^/]+\/status$/.test(topic);
 }
 
 function readDevicesId(topic, data) {
@@ -87,24 +129,70 @@ function readOptionalBoolean(value) {
   return typeof value === "boolean" ? value : undefined;
 }
 
+function haversineMeters(a, b) {
+  const earthRadiusMeters = 6371000;
+  const toRadians = (value) => (value * Math.PI) / 180;
+  const dLat = toRadians(b.lat - a.lat);
+  const dLng = toRadians(b.lng - a.lng);
+  const lat1 = toRadians(a.lat);
+  const lat2 = toRadians(b.lat);
+
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+
+  return 2 * earthRadiusMeters * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+function shouldForwardPayload(devicesId, payload) {
+  if (payload.forceResync === true) return { forward: true };
+
+  const previous = lastForwardByDevice.get(devicesId);
+  if (!previous) return { forward: true };
+
+  const now = Date.now();
+  const elapsedMs = now - previous.forwardedAtMs;
+  const distanceMeters = haversineMeters(
+    { lat: previous.lat, lng: previous.lng },
+    { lat: payload.lat, lng: payload.lng },
+  );
+
+  if (
+    elapsedMs < FORWARD_MIN_INTERVAL_MS &&
+    distanceMeters < FORWARD_DISTANCE_THRESHOLD_METERS
+  ) {
+    return {
+      forward: false,
+      reason: `throttled ${devicesId}: ${elapsedMs}ms, ${distanceMeters.toFixed(1)}m`,
+    };
+  }
+
+  return { forward: true };
+}
+
 function readGsmTelemetry(data) {
-  if (!data.gsm || typeof data.gsm !== "object" || Array.isArray(data.gsm)) {
+  const source =
+    data.gsm && typeof data.gsm === "object" && !Array.isArray(data.gsm)
+      ? data.gsm
+      : data;
+
+  if (!source || typeof source !== "object" || Array.isArray(source)) {
     return undefined;
   }
 
   const gsm = {
-    apn: readOptionalString(data.gsm.apn),
-    signalCsq: readOptionalNumber(data.gsm.signalCsq),
-    signalDbm: readOptionalNumber(data.gsm.signalDbm),
-    signalPercent: readOptionalNumber(data.gsm.signalPercent),
-    simStatus: readOptionalNumber(data.gsm.simStatus),
-    simStatusText: readOptionalString(data.gsm.simStatusText),
-    networkConnected: readOptionalBoolean(data.gsm.networkConnected),
-    gprsConnected: readOptionalBoolean(data.gsm.gprsConnected),
-    localIp: readOptionalString(data.gsm.localIp),
-    networkType: readOptionalString(data.gsm.networkType),
-    mqttState: readOptionalNumber(data.gsm.mqttState),
-    mqttStateText: readOptionalString(data.gsm.mqttStateText),
+    apn: readOptionalString(source.apn),
+    signalCsq: readOptionalNumber(source.signalCsq),
+    signalDbm: readOptionalNumber(source.signalDbm),
+    signalPercent: readOptionalNumber(source.signalPercent),
+    simStatus: readOptionalNumber(source.simStatus),
+    simStatusText: readOptionalString(source.simStatusText),
+    networkConnected: readOptionalBoolean(source.networkConnected),
+    gprsConnected: readOptionalBoolean(source.gprsConnected),
+    localIp: readOptionalString(source.localIp),
+    networkType: readOptionalString(source.networkType),
+    mqttState: readOptionalNumber(source.mqttState),
+    mqttStateText: readOptionalString(source.mqttStateText),
   };
 
   const entries = Object.entries(gsm).filter(([, value]) => value !== undefined);
@@ -116,6 +204,7 @@ const healthServer = http.createServer((req, res) => {
     ok: true,
     service: "simobi-mqtt-bridge",
     topic: TOPIC,
+    topics: TOPICS,
     apiUrl: API_URL,
     ...status,
   });
@@ -149,7 +238,7 @@ client.on("connect", () => {
   status.mqttConnected = true;
   status.lastError = null;
   console.log("Bridge connected to MQTT broker.");
-  client.subscribe(TOPIC, (err) => {
+  client.subscribe(TOPICS, (err) => {
     if (err) {
       status.subscribed = false;
       status.lastError = err.message;
@@ -158,7 +247,7 @@ client.on("connect", () => {
     }
 
     status.subscribed = true;
-    console.log(`Subscribed to topic: ${TOPIC}`);
+    console.log(`Subscribed to topics: ${TOPICS.join(", ")}`);
     console.log(`Forwarding MQTT GPS payloads to: ${API_URL}`);
   });
 });
@@ -168,16 +257,57 @@ client.on("message", async (topic, message) => {
     const raw = message.toString();
     const data = JSON.parse(raw);
     status.lastMessageAt = new Date().toISOString();
-    console.log("Received MQTT GPS payload:", { topic, data });
-
-    if (typeof data.lat !== "number" || typeof data.lng !== "number") {
-      console.warn("Skipping payload because lat/lng is missing or not a number:", data);
-      return;
-    }
+    console.log("Received MQTT payload:", { topic, data });
 
     const devicesId = readDevicesId(topic, data);
     if (devicesId === null) {
       console.warn("Skipping payload because devicesId/deviceId is missing or invalid:", { topic, data });
+      return;
+    }
+
+    const gsm = readGsmTelemetry(data);
+    if (isStatusTopic(topic)) {
+      if (!gsm) {
+        console.warn("Skipping status payload because no valid GSM fields were found:", data);
+        return;
+      }
+
+      const payload = {
+        devicesId,
+        statusOnly: true,
+        source: "mqtt_status",
+        gsm,
+      };
+
+      const res = await fetch(API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${BUGGY_INGEST_TOKEN}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const responseText = await res.text();
+      if (!res.ok) {
+        status.lastForwardStatus = res.status;
+        status.lastError = responseText || `HTTP ${res.status}`;
+        console.error("Failed to forward status payload to SIMOBI API:", {
+          status: res.status,
+          response: responseText,
+        });
+        return;
+      }
+
+      status.lastForwardAt = new Date().toISOString();
+      status.lastForwardStatus = res.status;
+      status.lastError = null;
+      console.log("Status payload forwarded to SIMOBI API.", responseText);
+      return;
+    }
+
+    if (typeof data.lat !== "number" || typeof data.lng !== "number") {
+      console.warn("Skipping payload because lat/lng is missing or not a number:", data);
       return;
     }
 
@@ -194,8 +324,16 @@ client.on("message", async (topic, message) => {
         typeof data.batteryLevel === "number" ? data.batteryLevel : undefined,
       passengers: typeof data.passengers === "number" ? data.passengers : 0,
       forceResync: data.forceResync === true,
-      gsm: readGsmTelemetry(data),
+      gsm,
     };
+
+    const forwardDecision = shouldForwardPayload(devicesId, payload);
+    if (!forwardDecision.forward) {
+      status.lastSkippedAt = new Date().toISOString();
+      status.lastSkippedReason = forwardDecision.reason;
+      console.log("Skipping MQTT GPS payload:", forwardDecision.reason);
+      return;
+    }
 
     const res = await fetch(API_URL, {
       method: "POST",
@@ -220,6 +358,12 @@ client.on("message", async (topic, message) => {
     status.lastForwardAt = new Date().toISOString();
     status.lastForwardStatus = res.status;
     status.lastError = null;
+    status.lastSkippedReason = null;
+    lastForwardByDevice.set(devicesId, {
+      forwardedAtMs: Date.now(),
+      lat: payload.lat,
+      lng: payload.lng,
+    });
     console.log("Payload forwarded to SIMOBI API.", responseText);
   } catch (err) {
     status.lastError = err instanceof Error ? err.message : String(err);

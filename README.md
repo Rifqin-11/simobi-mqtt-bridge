@@ -71,9 +71,12 @@ DEFAULT_ACCURACY=10
 
 `API_URL` harus memakai URL publik aplikasi Next.js yang sudah deploy. Jangan isi `localhost`, karena di Railway `localhost` berarti container bridge itu sendiri, bukan laptop atau service Next.js lain.
 
+Jika `MQTT_TOPIC` diisi `buggy/+/data`, bridge otomatis ikut subscribe
+ke topic status pasangannya, yaitu `buggy/+/status`.
+
 ## Payload MQTT
 
-ESP32 publish JSON ke topic `buggy/<devicesId>/data`, misalnya `buggy/ESP-1234ABCD/data`:
+ESP32 publish JSON posisi ke topic `buggy/<devicesId>/data`, misalnya `buggy/ESP-1234ABCD/data`:
 
 ```json
 {
@@ -108,7 +111,7 @@ Field opsional yang juga akan diteruskan:
 }
 ```
 
-Payload juga mendukung data status GSM dari ESP32:
+Payload posisi juga masih boleh membawa data status GSM dari ESP32:
 
 ```json
 {
@@ -133,6 +136,32 @@ Payload juga mendukung data status GSM dari ESP32:
 ```
 
 Bridge akan meneruskan objek `gsm` ke API hanya jika field-nya valid.
+
+Untuk mengurangi ukuran payload posisi, ESP32 dapat memisahkan status berat ke
+topic `buggy/<devicesId>/status` setiap beberapa detik, misalnya 15 detik:
+
+```json
+{
+  "gsm": {
+    "apn": "internet",
+    "signalCsq": 28,
+    "signalDbm": -57,
+    "signalPercent": 90,
+    "simStatus": 1,
+    "simStatusText": "SIM_READY",
+    "networkConnected": true,
+    "gprsConnected": true,
+    "localIp": "10.16.103.147",
+    "networkType": "GSM_GPRS_2G",
+    "mqttState": 0,
+    "mqttStateText": "MQTT_CONNECTED"
+  }
+}
+```
+
+Bridge meneruskan status tersebut sebagai `statusOnly` ke `/api/gps-beacon`.
+Backend hanya memperbarui GSM/latest telemetry, tanpa memasukkan row ke
+`buggy_history` dan tanpa membuat titik session.
 
 ## Jalankan Lokal
 
