@@ -34,6 +34,7 @@ const FORWARD_MIN_INTERVAL_MS = Number(process.env.FORWARD_MIN_INTERVAL_MS || 50
 const FORWARD_DISTANCE_THRESHOLD_METERS = Number(
   process.env.FORWARD_DISTANCE_THRESHOLD_METERS || 10,
 );
+const STATIONARY_HEARTBEAT_MS = Number(process.env.STATIONARY_HEARTBEAT_MS || 60000);
 const PORT = Number(process.env.PORT || 8080);
 const HOST = "0.0.0.0";
 const lastForwardByDevice = new Map();
@@ -64,6 +65,11 @@ if (
   FORWARD_DISTANCE_THRESHOLD_METERS < 0
 ) {
   console.error("FORWARD_DISTANCE_THRESHOLD_METERS must be a non-negative number.");
+  process.exit(1);
+}
+
+if (!Number.isFinite(STATIONARY_HEARTBEAT_MS) || STATIONARY_HEARTBEAT_MS < 0) {
+  console.error("STATIONARY_HEARTBEAT_MS must be a non-negative number.");
   process.exit(1);
 }
 
@@ -145,10 +151,14 @@ function haversineMeters(a, b) {
 }
 
 function shouldForwardPayload(devicesId, payload) {
-  if (payload.forceResync === true) return { forward: true };
+  if (payload.forceResync === true) {
+    return { forward: true, reason: "forceResync" };
+  }
 
   const previous = lastForwardByDevice.get(devicesId);
-  if (!previous) return { forward: true };
+  if (!previous) {
+    return { forward: true, reason: "first GPS point" };
+  }
 
   const now = Date.now();
   const elapsedMs = now - previous.forwardedAtMs;
@@ -157,17 +167,32 @@ function shouldForwardPayload(devicesId, payload) {
     { lat: payload.lat, lng: payload.lng },
   );
 
-  if (
-    elapsedMs < FORWARD_MIN_INTERVAL_MS &&
-    distanceMeters < FORWARD_DISTANCE_THRESHOLD_METERS
-  ) {
+  if (distanceMeters >= FORWARD_DISTANCE_THRESHOLD_METERS) {
+    if (elapsedMs >= FORWARD_MIN_INTERVAL_MS) {
+      return {
+        forward: true,
+        reason: `moved ${distanceMeters.toFixed(1)}m after ${elapsedMs}ms`,
+      };
+    }
+
     return {
       forward: false,
-      reason: `throttled ${devicesId}: ${elapsedMs}ms, ${distanceMeters.toFixed(1)}m`,
+      reason: `moving rate-limited ${devicesId}: ${elapsedMs}ms, ${distanceMeters.toFixed(1)}m`,
     };
   }
 
-  return { forward: true };
+  if (elapsedMs >= STATIONARY_HEARTBEAT_MS) {
+    return {
+      forward: true,
+      stationaryHeartbeat: true,
+      reason: `stationary heartbeat after ${elapsedMs}ms, ${distanceMeters.toFixed(1)}m`,
+    };
+  }
+
+  return {
+    forward: false,
+    reason: `stationary throttled ${devicesId}: ${elapsedMs}ms, ${distanceMeters.toFixed(1)}m`,
+  };
 }
 
 function readGsmTelemetry(data) {
@@ -206,6 +231,9 @@ const healthServer = http.createServer((req, res) => {
     topic: TOPIC,
     topics: TOPICS,
     apiUrl: API_URL,
+    forwardMinIntervalMs: FORWARD_MIN_INTERVAL_MS,
+    forwardDistanceThresholdMeters: FORWARD_DISTANCE_THRESHOLD_METERS,
+    stationaryHeartbeatMs: STATIONARY_HEARTBEAT_MS,
     ...status,
   });
 
@@ -333,6 +361,9 @@ client.on("message", async (topic, message) => {
       status.lastSkippedReason = forwardDecision.reason;
       console.log("Skipping MQTT GPS payload:", forwardDecision.reason);
       return;
+    }
+    if (forwardDecision.stationaryHeartbeat === true) {
+      payload.stationaryHeartbeat = true;
     }
 
     const res = await fetch(API_URL, {

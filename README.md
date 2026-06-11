@@ -29,7 +29,7 @@ Set secrets di Fly:
 fly secrets set MQTT_SERVER="mqtts://db7ded41366b4e9e863e255883a077fd.s1.eu.hivemq.cloud:8883"
 fly secrets set MQTT_USER="ESP32GPSBV1"
 fly secrets set MQTT_PASS="..."
-fly secrets set API_URL="https://undip-bus-tracking.vercel.app/api/gps-beacon"
+fly secrets set API_URL="https://vps.simobi.my.id/api/gps-beacon"
 fly secrets set BUGGY_INGEST_TOKEN="your-secret-token"
 ```
 
@@ -63,16 +63,28 @@ MQTT_SERVER=mqtts://your-hivemq-host:8883
 MQTT_USER=your-mqtt-username
 MQTT_PASS=your-mqtt-password
 MQTT_TOPIC=buggy/+/data
-API_URL=https://your-simobi-web-production.up.railway.app/api/gps-beacon
+API_URL=https://vps.simobi.my.id/api/gps-beacon
 BUGGY_INGEST_TOKEN=your-secret-token
 DEVICES_ID=ESP-DEFAULT
 DEFAULT_ACCURACY=10
+FORWARD_MIN_INTERVAL_MS=5000
+FORWARD_DISTANCE_THRESHOLD_METERS=10
+STATIONARY_HEARTBEAT_MS=60000
 ```
 
 `API_URL` harus memakai URL publik aplikasi Next.js yang sudah deploy. Jangan isi `localhost`, karena di Railway `localhost` berarti container bridge itu sendiri, bukan laptop atau service Next.js lain.
 
 Jika `MQTT_TOPIC` diisi `buggy/+/data`, bridge otomatis ikut subscribe
 ke topic status pasangannya, yaitu `buggy/+/status`.
+
+Throttle GPS production:
+
+- Jika buggy bergerak setidaknya `FORWARD_DISTANCE_THRESHOLD_METERS`, payload GPS diteruskan setelah melewati `FORWARD_MIN_INTERVAL_MS`.
+- Jika buggy diam atau hanya bergeser kecil di bawah threshold, payload GPS hanya diteruskan sebagai heartbeat setiap `STATIONARY_HEARTBEAT_MS`.
+- Heartbeat diam dikirim dengan `stationaryHeartbeat=true` agar backend memperbarui live telemetry tanpa menambah titik raw history atau path sesi.
+- Jika `forceResync=true`, payload tetap diteruskan tanpa menunggu throttle.
+
+Dengan aturan ini, buggy yang tiba-tiba bergerak tidak perlu menunggu heartbeat diam, tetapi buggy yang berhenti lama tidak terus-menerus membebani endpoint SIMOBI.
 
 ## Payload MQTT
 
