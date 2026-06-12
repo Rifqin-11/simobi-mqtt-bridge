@@ -68,8 +68,9 @@ BUGGY_INGEST_TOKEN=your-secret-token
 DEVICES_ID=ESP-DEFAULT
 DEFAULT_ACCURACY=10
 MOVING_SPEED_THRESHOLD_KMH=1
+PASSENGER_SMOOTHING_WINDOW_SIZE=7
 FORWARD_DISTANCE_THRESHOLD_METERS=10
-STATIONARY_HEARTBEAT_MS=60000
+STATIONARY_HEARTBEAT_MS=20000
 ```
 
 `API_URL` harus memakai URL publik aplikasi Next.js yang sudah deploy. Jangan isi `localhost`, karena di Railway `localhost` berarti container bridge itu sendiri, bukan laptop atau service Next.js lain.
@@ -87,6 +88,12 @@ Throttle GPS production:
 - Payload dengan GPS invalid seperti `gpsValid=false`, koordinat di luar range, atau `0,0` akan diskip sebelum masuk logika jarak.
 
 Dengan aturan ini, buggy yang tiba-tiba bergerak tidak perlu menunggu heartbeat diam, tetapi buggy yang berhenti lama tidak terus-menerus membebani endpoint SIMOBI.
+
+Smoothing estimasi penumpang:
+
+- Bridge menyimpan `PASSENGER_SMOOTHING_WINDOW_SIZE` sampel penumpang terakhir per device.
+- Nilai `passengers` yang dikirim ke API adalah median dari window tersebut, sehingga fluktuasi kecil 1-2 orang dari computer vision tidak langsung membuat tampilan berubah.
+- Nilai raw tetap dikirim sebagai `passengersRaw` dan daftar sampel sebagai `passengerSamples` untuk debugging.
 
 ## Payload MQTT
 

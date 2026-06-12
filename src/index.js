@@ -31,13 +31,17 @@ const API_URL = readRequiredEnv("API_URL");
 const BUGGY_INGEST_TOKEN = readRequiredEnv("BUGGY_INGEST_TOKEN");
 const DEFAULT_ACCURACY = Number(process.env.DEFAULT_ACCURACY || 10);
 const MOVING_SPEED_THRESHOLD_KMH = Number(process.env.MOVING_SPEED_THRESHOLD_KMH || 1);
+const PASSENGER_SMOOTHING_WINDOW_SIZE = Number(
+  process.env.PASSENGER_SMOOTHING_WINDOW_SIZE || 7,
+);
 const FORWARD_DISTANCE_THRESHOLD_METERS = Number(
   process.env.FORWARD_DISTANCE_THRESHOLD_METERS || 10,
 );
-const STATIONARY_HEARTBEAT_MS = Number(process.env.STATIONARY_HEARTBEAT_MS || 60000);
+const STATIONARY_HEARTBEAT_MS = Number(process.env.STATIONARY_HEARTBEAT_MS || 20000);
 const PORT = Number(process.env.PORT || 8080);
 const HOST = "0.0.0.0";
 const lastForwardByDevice = new Map();
+const passengerSamplesByDevice = new Map();
 
 const status = {
   mqttConnected: false,
@@ -60,6 +64,15 @@ if (
   MOVING_SPEED_THRESHOLD_KMH < 0
 ) {
   console.error("MOVING_SPEED_THRESHOLD_KMH must be a non-negative number.");
+  process.exit(1);
+}
+
+if (
+  !Number.isInteger(PASSENGER_SMOOTHING_WINDOW_SIZE) ||
+  PASSENGER_SMOOTHING_WINDOW_SIZE < 1 ||
+  PASSENGER_SMOOTHING_WINDOW_SIZE > 10
+) {
+  console.error("PASSENGER_SMOOTHING_WINDOW_SIZE must be an integer from 1 to 10.");
   process.exit(1);
 }
 
@@ -163,6 +176,30 @@ function hasValidGpsFix(data) {
   return { valid: true };
 }
 
+function smoothPassengerCount(devicesId, value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return { smoothed: undefined, raw: undefined, samples: [] };
+  }
+
+  const raw = Math.max(0, Math.round(value));
+  const previousSamples = passengerSamplesByDevice.get(devicesId) || [];
+  const samples = [...previousSamples, raw].slice(-PASSENGER_SMOOTHING_WINDOW_SIZE);
+  passengerSamplesByDevice.set(devicesId, samples);
+
+  const sorted = [...samples].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  const median =
+    sorted.length % 2 === 1
+      ? sorted[middle]
+      : Math.round((sorted[middle - 1] + sorted[middle]) / 2);
+
+  return {
+    smoothed: median,
+    raw,
+    samples,
+  };
+}
+
 function haversineMeters(a, b) {
   const earthRadiusMeters = 6371000;
   const toRadians = (value) => (value * Math.PI) / 180;
@@ -264,6 +301,7 @@ const healthServer = http.createServer((req, res) => {
     topics: TOPICS,
     apiUrl: API_URL,
     movingSpeedThresholdKmh: MOVING_SPEED_THRESHOLD_KMH,
+    passengerSmoothingWindowSize: PASSENGER_SMOOTHING_WINDOW_SIZE,
     forwardDistanceThresholdMeters: FORWARD_DISTANCE_THRESHOLD_METERS,
     stationaryHeartbeatMs: STATIONARY_HEARTBEAT_MS,
     ...status,
@@ -372,6 +410,8 @@ client.on("message", async (topic, message) => {
       return;
     }
 
+    const passengerEstimate = smoothPassengerCount(devicesId, data.passengers);
+
     const payload = {
       devicesId,
       lat: data.lat,
@@ -383,7 +423,9 @@ client.on("message", async (topic, message) => {
       altitude: typeof data.altitude === "number" ? data.altitude : undefined,
       batteryLevel:
         typeof data.batteryLevel === "number" ? data.batteryLevel : undefined,
-      passengers: typeof data.passengers === "number" ? data.passengers : 0,
+      passengers: passengerEstimate.smoothed,
+      passengersRaw: passengerEstimate.raw,
+      passengerSamples: passengerEstimate.samples,
       forceResync: data.forceResync === true,
       gsm,
     };
