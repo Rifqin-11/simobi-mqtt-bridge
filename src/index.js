@@ -30,7 +30,7 @@ const TOPICS = resolveMqttTopics(TOPIC);
 const API_URL = readRequiredEnv("API_URL");
 const BUGGY_INGEST_TOKEN = readRequiredEnv("BUGGY_INGEST_TOKEN");
 const DEFAULT_ACCURACY = Number(process.env.DEFAULT_ACCURACY || 10);
-const FORWARD_MIN_INTERVAL_MS = Number(process.env.FORWARD_MIN_INTERVAL_MS || 5000);
+const MOVING_SPEED_THRESHOLD_KMH = Number(process.env.MOVING_SPEED_THRESHOLD_KMH || 1);
 const FORWARD_DISTANCE_THRESHOLD_METERS = Number(
   process.env.FORWARD_DISTANCE_THRESHOLD_METERS || 10,
 );
@@ -55,8 +55,11 @@ if (!Number.isFinite(PORT)) {
   process.exit(1);
 }
 
-if (!Number.isFinite(FORWARD_MIN_INTERVAL_MS) || FORWARD_MIN_INTERVAL_MS < 0) {
-  console.error("FORWARD_MIN_INTERVAL_MS must be a non-negative number.");
+if (
+  !Number.isFinite(MOVING_SPEED_THRESHOLD_KMH) ||
+  MOVING_SPEED_THRESHOLD_KMH < 0
+) {
+  console.error("MOVING_SPEED_THRESHOLD_KMH must be a non-negative number.");
   process.exit(1);
 }
 
@@ -135,6 +138,31 @@ function readOptionalBoolean(value) {
   return typeof value === "boolean" ? value : undefined;
 }
 
+function hasValidGpsFix(data) {
+  if (data.gpsValid === false) {
+    return { valid: false, reason: "gpsValid=false" };
+  }
+
+  if (
+    typeof data.lat !== "number" ||
+    typeof data.lng !== "number" ||
+    !Number.isFinite(data.lat) ||
+    !Number.isFinite(data.lng)
+  ) {
+    return { valid: false, reason: "lat/lng is missing or not finite" };
+  }
+
+  if (data.lat < -90 || data.lat > 90 || data.lng < -180 || data.lng > 180) {
+    return { valid: false, reason: "lat/lng is out of range" };
+  }
+
+  if (data.lat === 0 && data.lng === 0) {
+    return { valid: false, reason: "lat/lng is 0,0" };
+  }
+
+  return { valid: true };
+}
+
 function haversineMeters(a, b) {
   const earthRadiusMeters = 6371000;
   const toRadians = (value) => (value * Math.PI) / 180;
@@ -166,18 +194,22 @@ function shouldForwardPayload(devicesId, payload) {
     { lat: previous.lat, lng: previous.lng },
     { lat: payload.lat, lng: payload.lng },
   );
+  const speedKmh =
+    typeof payload.speedKmh === "number" && Number.isFinite(payload.speedKmh)
+      ? Math.max(0, payload.speedKmh)
+      : 0;
+
+  if (speedKmh >= MOVING_SPEED_THRESHOLD_KMH) {
+    return {
+      forward: true,
+      reason: `moving speed ${speedKmh.toFixed(1)}km/h after ${elapsedMs}ms, ${distanceMeters.toFixed(1)}m`,
+    };
+  }
 
   if (distanceMeters >= FORWARD_DISTANCE_THRESHOLD_METERS) {
-    if (elapsedMs >= FORWARD_MIN_INTERVAL_MS) {
-      return {
-        forward: true,
-        reason: `moved ${distanceMeters.toFixed(1)}m after ${elapsedMs}ms`,
-      };
-    }
-
     return {
-      forward: false,
-      reason: `moving rate-limited ${devicesId}: ${elapsedMs}ms, ${distanceMeters.toFixed(1)}m`,
+      forward: true,
+      reason: `moved ${distanceMeters.toFixed(1)}m after ${elapsedMs}ms`,
     };
   }
 
@@ -231,7 +263,7 @@ const healthServer = http.createServer((req, res) => {
     topic: TOPIC,
     topics: TOPICS,
     apiUrl: API_URL,
-    forwardMinIntervalMs: FORWARD_MIN_INTERVAL_MS,
+    movingSpeedThresholdKmh: MOVING_SPEED_THRESHOLD_KMH,
     forwardDistanceThresholdMeters: FORWARD_DISTANCE_THRESHOLD_METERS,
     stationaryHeartbeatMs: STATIONARY_HEARTBEAT_MS,
     ...status,
@@ -334,8 +366,9 @@ client.on("message", async (topic, message) => {
       return;
     }
 
-    if (typeof data.lat !== "number" || typeof data.lng !== "number") {
-      console.warn("Skipping payload because lat/lng is missing or not a number:", data);
+    const gpsFix = hasValidGpsFix(data);
+    if (!gpsFix.valid) {
+      console.warn(`Skipping payload because GPS fix is invalid: ${gpsFix.reason}`, data);
       return;
     }
 

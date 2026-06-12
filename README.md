@@ -67,7 +67,7 @@ API_URL=https://vps.simobi.my.id/api/gps-beacon
 BUGGY_INGEST_TOKEN=your-secret-token
 DEVICES_ID=ESP-DEFAULT
 DEFAULT_ACCURACY=10
-FORWARD_MIN_INTERVAL_MS=5000
+MOVING_SPEED_THRESHOLD_KMH=1
 FORWARD_DISTANCE_THRESHOLD_METERS=10
 STATIONARY_HEARTBEAT_MS=60000
 ```
@@ -79,10 +79,12 @@ ke topic status pasangannya, yaitu `buggy/+/status`.
 
 Throttle GPS production:
 
-- Jika buggy bergerak setidaknya `FORWARD_DISTANCE_THRESHOLD_METERS`, payload GPS diteruskan setelah melewati `FORWARD_MIN_INTERVAL_MS`.
+- Jika buggy bergerak setidaknya `FORWARD_DISTANCE_THRESHOLD_METERS`, payload GPS langsung diteruskan ke SIMOBI. Mode ini cocok untuk deployment VPS + SSE karena web dapat menerima update secara event-driven.
+- Jika payload membawa speed minimal `MOVING_SPEED_THRESHOLD_KMH`, payload juga langsung diteruskan walaupun jarak dari titik terakhir belum melewati threshold. Ini membuat marker tetap responsif saat buggy bergerak pelan.
 - Jika buggy diam atau hanya bergeser kecil di bawah threshold, payload GPS hanya diteruskan sebagai heartbeat setiap `STATIONARY_HEARTBEAT_MS`.
 - Heartbeat diam dikirim dengan `stationaryHeartbeat=true` agar backend memperbarui live telemetry tanpa menambah titik raw history atau path sesi.
 - Jika `forceResync=true`, payload tetap diteruskan tanpa menunggu throttle.
+- Payload dengan GPS invalid seperti `gpsValid=false`, koordinat di luar range, atau `0,0` akan diskip sebelum masuk logika jarak.
 
 Dengan aturan ini, buggy yang tiba-tiba bergerak tidak perlu menunggu heartbeat diam, tetapi buggy yang berhenti lama tidak terus-menerus membebani endpoint SIMOBI.
 
